@@ -29,7 +29,7 @@ async def forward_to_n8n(session: aiohttp.ClientSession, data: dict):
 
 async def connect_and_bridge():
     url = f"wss://leviathan.whale-alert.io/ws?api_key={WHALE_ALERT_API_KEY}"
-    retry_delay = 30
+    retry_delay = 10
 
     async with aiohttp.ClientSession() as http_session:
         while True:
@@ -37,7 +37,7 @@ async def connect_and_bridge():
                 logger.info("🔌 Whale Alert WebSocket'e bağlanılıyor...")
                 async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
                     logger.info("✅ Bağlandı! Alert'lere subscribe olunuyor...")
-                    retry_delay = 30
+                    retry_delay = 10
 
                     await ws.send(json.dumps({
                         "type": "subscribe_alerts",
