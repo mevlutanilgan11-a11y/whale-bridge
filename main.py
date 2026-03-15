@@ -28,31 +28,39 @@ async def forward_to_n8n(session: aiohttp.ClientSession, data: dict):
 
 
 async def connect_and_bridge():
-    # API key URL'e parametre olarak ekleniyor (additional_headers yerine)
-    url = f"wss://lexi.whale-alert.io/v1/transactions?api_key={WHALE_ALERT_API_KEY}"
+    # Doğru URL: leviathan.whale-alert.io
+    url = f"wss://leviathan.whale-alert.io/ws?api_key={WHALE_ALERT_API_KEY}"
 
     async with aiohttp.ClientSession() as http_session:
         while True:
             try:
                 logger.info("🔌 Whale Alert WebSocket'e bağlanılıyor...")
                 async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
-                    logger.info("✅ Bağlandı! Veriler n8n'e iletiliyor...")
+                    logger.info("✅ Bağlandı! Alert'lere subscribe olunuyor...")
 
+                    # Doğru subscribe formatı: subscribe_alerts
                     await ws.send(json.dumps({
-                        "type": "subscribe_transactions",
-                        "api_key": WHALE_ALERT_API_KEY,
+                        "type": "subscribe_alerts",
+                        "min_value_usd": 100000  # minimum 100K USD (Whale Alert limiti)
                     }))
 
                     async for raw in ws:
                         try:
                             data = json.loads(raw)
+                            msg_type = data.get("type", "")
 
-                            if data.get("type") == "ping":
-                                await ws.send(json.dumps({"type": "pong"}))
+                            # Subscribe onayı
+                            if msg_type == "subscribed_alerts":
+                                logger.info(f"✅ Subscribe başarılı! Channel ID: {data.get('channel_id')}")
                                 continue
 
-                            logger.info(f"📨 Veri alındı: {data.get('type', '?')} → n8n'e iletiliyor...")
-                            await forward_to_n8n(http_session, data)
+                            # Alert geldi → n8n'e ilet
+                            if msg_type == "alert":
+                                logger.info(f"📨 Alert: {data.get('text', '')[:80]}...")
+                                await forward_to_n8n(http_session, data)
+                                continue
+
+                            logger.info(f"📩 Mesaj alındı (type: {msg_type})")
 
                         except json.JSONDecodeError:
                             logger.warning(f"JSON parse hatası: {raw[:100]}")
