@@ -13,11 +13,9 @@ logger = logging.getLogger(__name__)
 
 WHALE_ALERT_API_KEY = os.environ.get("WHALE_ALERT_API_KEY", "")
 N8N_WEBHOOK_URL     = os.environ.get("N8N_WEBHOOK_URL", "")
-WEBSOCKET_URL       = "wss://lexi.whale-alert.io/v1/transactions"
 
 
 async def forward_to_n8n(session: aiohttp.ClientSession, data: dict):
-    """Gelen veriyi olduğu gibi n8n webhook'una ilet."""
     try:
         async with session.post(
             N8N_WEBHOOK_URL,
@@ -30,18 +28,14 @@ async def forward_to_n8n(session: aiohttp.ClientSession, data: dict):
 
 
 async def connect_and_bridge():
-    headers = {"X-WA-API-KEY": WHALE_ALERT_API_KEY}
+    # API key URL'e parametre olarak ekleniyor (additional_headers yerine)
+    url = f"wss://lexi.whale-alert.io/v1/transactions?api_key={WHALE_ALERT_API_KEY}"
 
     async with aiohttp.ClientSession() as http_session:
         while True:
             try:
                 logger.info("🔌 Whale Alert WebSocket'e bağlanılıyor...")
-                async with websockets.connect(
-                    WEBSOCKET_URL,
-                    additional_headers=headers,
-                    ping_interval=30,
-                    ping_timeout=10,
-                ) as ws:
+                async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
                     logger.info("✅ Bağlandı! Veriler n8n'e iletiliyor...")
 
                     await ws.send(json.dumps({
@@ -53,12 +47,11 @@ async def connect_and_bridge():
                         try:
                             data = json.loads(raw)
 
-                            # Ping/pong yönet, gerisini n8n'e gönder
                             if data.get("type") == "ping":
                                 await ws.send(json.dumps({"type": "pong"}))
                                 continue
 
-                            logger.info(f"📨 Veri alındı: {data.get('type','?')} | n8n'e iletiliyor...")
+                            logger.info(f"📨 Veri alındı: {data.get('type', '?')} → n8n'e iletiliyor...")
                             await forward_to_n8n(http_session, data)
 
                         except json.JSONDecodeError:
