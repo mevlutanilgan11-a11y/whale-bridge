@@ -28,8 +28,8 @@ async def forward_to_n8n(session: aiohttp.ClientSession, data: dict):
 
 
 async def connect_and_bridge():
-    # Doğru URL: leviathan.whale-alert.io
     url = f"wss://leviathan.whale-alert.io/ws?api_key={WHALE_ALERT_API_KEY}"
+    retry_delay = 30
 
     async with aiohttp.ClientSession() as http_session:
         while True:
@@ -37,11 +37,11 @@ async def connect_and_bridge():
                 logger.info("🔌 Whale Alert WebSocket'e bağlanılıyor...")
                 async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
                     logger.info("✅ Bağlandı! Alert'lere subscribe olunuyor...")
+                    retry_delay = 30
 
-                    # Doğru subscribe formatı: subscribe_alerts
                     await ws.send(json.dumps({
                         "type": "subscribe_alerts",
-                        "min_value_usd": 100000  # minimum 100K USD (Whale Alert limiti)
+                        "min_value_usd": 100000
                     }))
 
                     async for raw in ws:
@@ -49,12 +49,10 @@ async def connect_and_bridge():
                             data = json.loads(raw)
                             msg_type = data.get("type", "")
 
-                            # Subscribe onayı
                             if msg_type == "subscribed_alerts":
                                 logger.info(f"✅ Subscribe başarılı! Channel ID: {data.get('channel_id')}")
                                 continue
 
-                            # Alert geldi → n8n'e ilet
                             if msg_type == "alert":
                                 logger.info(f"📨 Alert: {data.get('text', '')[:80]}...")
                                 await forward_to_n8n(http_session, data)
@@ -66,11 +64,17 @@ async def connect_and_bridge():
                             logger.warning(f"JSON parse hatası: {raw[:100]}")
 
             except websockets.exceptions.ConnectionClosed as e:
-                logger.warning(f"🔴 Bağlantı kesildi: {e} — 5sn sonra yeniden bağlanıyor...")
-                await asyncio.sleep(5)
+                logger.warning(f"🔴 Bağlantı kesildi: {e} — {retry_delay}sn sonra yeniden bağlanıyor...")
+                await asyncio.sleep(retry_delay)
+
             except Exception as e:
-                logger.error(f"Hata: {e} — 10sn sonra yeniden deneniyor...")
-                await asyncio.sleep(10)
+                error_str = str(e)
+                if "429" in error_str:
+                    logger.warning(f"⏳ Rate limit (429) — {retry_delay}sn bekleniyor...")
+                    retry_delay = min(retry_delay * 2, 300)
+                else:
+                    logger.error(f"Hata: {e} — {retry_delay}sn sonra yeniden deneniyor...")
+                await asyncio.sleep(retry_delay)
 
 
 if __name__ == "__main__":
