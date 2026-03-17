@@ -41,7 +41,7 @@ async def connect_and_bridge():
 
                     await ws.send(json.dumps({
                         "type": "subscribe_alerts",
-                        "min_value_usd": 100000
+                        "min_value_usd": 1000000
                     }))
 
                     async for raw in ws:
